@@ -158,17 +158,41 @@ class ManchesterCodingApp:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def generate_new_key(self):
-        self.key = get_random_bytes(32)
-        self.key_var.set(base64.b64encode(self.key).decode())
-        messagebox.showinfo("Nova Chave", "Nova chave AES-256 gerada com sucesso!")
+        self.key = get_random_bytes(32)  # Gera 32 bytes (256 bits)
+        key_b64 = base64.b64encode(self.key).decode()
+        self.key_var.set(key_b64)
+    
+        # Copiar automaticamente para a área de transferência
+        self.root.clipboard_clear()
+        self.root.clipboard_append(key_b64)
+    
+        messagebox.showinfo("Nova Chave", "Nova chave AES-256 gerada com sucesso e copiada para a área de transferência!")
 
     def set_key(self):
         try:
-            key_b64 = self.key_entry.get()
-            self.key = base64.b64decode(key_b64)
-            if len(self.key) != 32:
-                raise ValueError("A chave deve ter 32 bytes (256 bits)")
+            key_b64 = self.key_entry.get().strip()
+            if not key_b64:
+                messagebox.showerror("Erro", "A chave não pode estar vazia")
+                return
+            
+            # Decodificar a chave base64
+            try:
+                decoded_key = base64.b64decode(key_b64)
+            except Exception:
+                messagebox.showerror("Erro", "Formato de chave inválido. Certifique-se de que é um valor Base64 válido.")
+                return
+            
+            # Verificar se tem o tamanho correto (256 bits = 32 bytes)
+            if len(decoded_key) != 32:
+                messagebox.showerror("Erro", f"Tamanho de chave inválido: {len(decoded_key)} bytes. A chave deve ter 32 bytes (256 bits)")
+                return
+            
+            # Definir a chave
+            self.key = decoded_key
             messagebox.showinfo("Chave Definida", "Chave AES-256 definida com sucesso!")
+        
+            # Atualizar a interface para mostrar que a chave está pronta
+            self.status_bar.config(text="Chave AES definida e pronta para descriptografia")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao definir a chave: {str(e)}")
 
@@ -295,19 +319,99 @@ class ManchesterCodingApp:
         # Limpar gráfico anterior
         self.ax.clear()
         
-        # Configurar o gráfico
-        x = np.arange(0, len(manchester_data))
-        y = manchester_data
+        # Se não houver dados, não plotar
+        if not manchester_data:
+            self.ax.set_title("Sem dados para exibir")
+            self.canvas.draw()
+            return
         
-        # Desenhar linhas
-        self.ax.step(x, y, where='post', color='blue', linewidth=2)
+        # Criar uma representação mais precisa do sinal para melhor visualização
+        # Dobrar cada ponto para criar transições verticais claras
+        x_values = []
+        y_values = []
         
-        # Adicionar eixos e título
-        self.ax.set_xlabel('Tempo')
+        # Iniciar com um tempo negativo pequeno para mostrar o início do sinal
+        x_values.append(-0.5)
+        y_values.append(manchester_data[0])
+        
+        for i, bit in enumerate(manchester_data):
+            # Adicionar um ponto antes da transição (mesmo x, valor anterior)
+            if i > 0:
+                x_values.append(i - 0.001)
+                y_values.append(manchester_data[i - 1])
+            
+            # Adicionar o ponto atual
+            x_values.append(i)
+            y_values.append(bit)
+            
+            # Adicionar outro ponto para manter o valor até a próxima transição
+            x_values.append(i + 0.999)
+            y_values.append(bit)
+        
+        # Adicionar um ponto extra no final para mostrar o final do sinal
+        x_values.append(len(manchester_data) - 0.001)
+        y_values.append(manchester_data[-1])
+        x_values.append(len(manchester_data))
+        y_values.append(manchester_data[-1])
+        
+        # Desenhar o sinal como uma linha contínua
+        self.ax.plot(x_values, y_values, 'b-', linewidth=2)
+        
+        # Adicionar marcações para cada bit
+        for i in range(0, len(manchester_data), 2):
+            if i+1 < len(manchester_data):
+                # Determinar qual bit original este par representa
+                bit_value = '0' if manchester_data[i] == 0 and manchester_data[i+1] == 1 else '1'
+                # Posicionar o texto no meio do par
+                self.ax.text(i + 0.5, -0.2, bit_value, 
+                            horizontalalignment='center', 
+                            verticalalignment='center',
+                            fontsize=9, color='red')
+        
+        # Adicionar linhas verticais para separar os pares de bits (bits originais)
+        for i in range(0, len(manchester_data) + 1, 2):
+            self.ax.axvline(x=i, color='lightgray', linestyle='--', alpha=0.7)
+        
+        # Adicionar uma linha horizontal no nível 0
+        self.ax.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
+        
+        # Adicionar uma linha horizontal no nível 1
+        self.ax.axhline(y=1, color='gray', linestyle='-', alpha=0.5)
+        
+        # Configurar o layout do gráfico
+        self.ax.set_xlabel('Tempo (amostras)')
         self.ax.set_ylabel('Nível')
         self.ax.set_title(title)
         self.ax.set_ylim([-0.5, 1.5])
-        self.ax.grid(True)
+        
+        # Ajustar os limites do eixo x para mostrar um pouco antes e depois do sinal
+        self.ax.set_xlim([-1, len(manchester_data) + 1])
+        
+        # Adicionar legendas para explicar a codificação
+        self.ax.text(len(manchester_data) + 0.5, 0.8, '01 → 0', color='blue', 
+                    bbox=dict(facecolor='white', alpha=0.8))
+        self.ax.text(len(manchester_data) + 0.5, 0.3, '10 → 1', color='blue',
+                    bbox=dict(facecolor='white', alpha=0.8))
+        
+        # Adicionar grade
+        self.ax.grid(True, which='both', linestyle=':', alpha=0.6)
+        
+        # Adicionar ticks para cada posição de bit
+        self.ax.set_xticks(range(0, len(manchester_data)))
+        
+        # Anotações para indicar os pares de bits
+        for i in range(0, len(manchester_data), 2):
+            if i+1 < len(manchester_data):
+                mid_point = i + 0.5
+                self.ax.annotate(f'', xy=(i, 1.3), xytext=(i+2, 1.3),
+                                arrowprops=dict(arrowstyle='<->',
+                                            linestyle='-',
+                                            color='green',
+                                            alpha=0.7))
+                if i % 4 == 0:  # Para não sobrecarregar o gráfico, só mostrar algumas anotações
+                    self.ax.text(mid_point, 1.4, f'1 bit', 
+                                horizontalalignment='center', 
+                                color='green', fontsize=8)
         
         # Atualizar canvas
         self.canvas.draw()
