@@ -74,7 +74,7 @@ class ManchesterCodingApp:
         self.socket = None
         self.client_socket = None
         self.server_socket = None  # Adicionado para controle do servidor
-        self.host = '127.0.0.1'
+        self.host = '0.0.0.0'
         self.port = 12345
         
         # For AES encryption
@@ -106,7 +106,7 @@ class ManchesterCodingApp:
         ttk.Label(net_frame, text="IP:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.ip_entry = ttk.Entry(net_frame, width=15)
         self.ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        self.ip_entry.insert(0, "127.0.0.1")
+        self.ip_entry.insert(0, "0.0.0.0")
         
         ttk.Label(net_frame, text="Porta:").grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         self.port_entry = ttk.Entry(net_frame, width=6)

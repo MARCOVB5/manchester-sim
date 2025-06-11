@@ -1,69 +1,108 @@
 import socket
 import threading
+import ipaddress
+import time
 
-# Configuration: UDP discovery port and magic string
+# Configuration
 DISCOVERY_PORT = 12346
 DISCOVERY_MESSAGE = b'DISCOVER_MANCHESTER'
 
+def get_network_interfaces():
+    """Retorna lista de interfaces de rede ativas"""
+    interfaces = []
+    try:
+        # Criar socket temporário para descobrir IP local
+        temp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        temp_sock.connect(("8.8.8.8", 80))
+        local_ip = temp_sock.getsockname()[0]
+        temp_sock.close()
+        
+        # Calcular rede local (assumindo /24)
+        network = ipaddress.IPv4Network(f"{local_ip}/24", strict=False)
+        interfaces.append(str(network.broadcast_address))
+        
+        # Adicionar broadcast padrão também
+        interfaces.append('255.255.255.255')
+        
+    except Exception:
+        interfaces = ['255.255.255.255']
+    
+    return interfaces
 
 def listen_for_discovery(tcp_port):
     """
-    Runs in a background thread on the server side.
-    Listens for UDP discovery requests and replies with the TCP port.
+    Escuta por requisições de descoberta UDP
+    Melhorado com melhor tratamento de erros
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # bind to all interfaces on the discovery port
-    sock.bind(('0.0.0.0', DISCOVERY_PORT))
-    while True:
-        data, addr = sock.recvfrom(1024)
-        if data == DISCOVERY_MESSAGE:
-            # reply with our TCP port
-            sock.sendto(str(tcp_port).encode(), addr)
-
-
-def discover_server(timeout=1.0):
-    """
-    Sends a UDP broadcast to find any server instances.
-    Returns a tuple (server_ip, server_tcp_port) or (None, None).
-    """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.settimeout(timeout)
+    sock = None
     try:
-        # broadcast discovery message
-        sock.sendto(DISCOVERY_MESSAGE, ('255.255.255.255', DISCOVERY_PORT))
-        data, addr = sock.recvfrom(1024)
-        server_ip = addr[0]
-        server_port = int(data.decode())
-        return server_ip, server_port
-    except socket.timeout:
-        return None, None
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('0.0.0.0', DISCOVERY_PORT))
+        print(f"Servidor de descoberta ativo na porta {DISCOVERY_PORT}")
+        
+        while True:
+            try:
+                data, addr = sock.recvfrom(1024)
+                if data == DISCOVERY_MESSAGE:
+                    print(f"Descoberta recebida de {addr[0]}:{addr[1]}")
+                    # Responder com a porta TCP
+                    response = str(tcp_port).encode()
+                    sock.sendto(response, addr)
+                    print(f"Resposta enviada: porta {tcp_port}")
+            except Exception as e:
+                print(f"Erro ao processar descoberta: {e}")
+                time.sleep(0.1)  # Evitar loop muito rápido
+                
+    except Exception as e:
+        print(f"Erro no servidor de descoberta: {e}")
     finally:
+        if sock:
+            sock.close()
+
+def discover_server(timeout=3.0):
+    """
+    Descobre servidores na rede usando múltiplas estratégias
+    """
+    results = []
+    
+    # Estratégia 1: Broadcast em múltiplas interfaces
+    interfaces = get_network_interfaces()
+    
+    for broadcast_addr in interfaces:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sock.settimeout(timeout / len(interfaces))
+            
+            print(f"Enviando descoberta para {broadcast_addr}:{DISCOVERY_PORT}")
+            sock.sendto(DISCOVERY_MESSAGE, (broadcast_addr, DISCOVERY_PORT))
+            
+            try:
+                data, addr = sock.recvfrom(1024)
+                server_ip = addr[0]
+                server_port = int(data.decode())
+                results.append((server_ip, server_port))
+                print(f"Servidor encontrado: {server_ip}:{server_port}")
+            except socket.timeout:
+                print(f"Timeout no broadcast {broadcast_addr}")
+                pass
+                
+        except Exception as e:
+            print(f"Erro no broadcast {broadcast_addr}: {e}")
+        finally:
+            sock.close()
+    
+    # Retornar o primeiro resultado encontrado
+    return results[0] if results else (None, None)
+
+def test_connection(host, port):
+    """Testa se é possível conectar em um host:porta"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2.0)
+        result = sock.connect_ex((host, port))
         sock.close()
-
-
-# Example of starting discovery listener in your main GUI/server code:
-#
-# from discovery import listen_for_discovery
-#
-# def start_server(self):
-#     tcp_port = int(self.port_entry.get())
-#     threading.Thread(target=listen_for_discovery, args=(tcp_port,), daemon=True).start()
-#     # ... continue binding TCP socket, accepting connections
-
-# Example of using discovery in client code:
-#
-# from discovery import discover_server
-#
-# def connect_to_receiver(self):
-#     server_ip, server_port = discover_server()
-#     if server_ip is None:
-#         print("No server found on LAN")
-#     else:
-#         # fill GUI fields or directly connect:
-#         self.ip_entry.delete(0, 'end')
-#         self.ip_entry.insert(0, server_ip)
-#         self.port_entry.delete(0, 'end')
-#         self.port_entry.insert(0, str(server_port))
-#         # now proceed with your TCP connect logic
-
+        return result == 0
+    except:
+        return False
