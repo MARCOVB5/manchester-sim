@@ -73,6 +73,7 @@ class ManchesterCodingApp:
         # Socket configurations
         self.socket = None
         self.client_socket = None
+        self.server_socket = None  # Adicionado para controle do servidor
         self.host = '127.0.0.1'
         self.port = 12345
         
@@ -98,7 +99,7 @@ class ManchesterCodingApp:
         main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Frame de configuração de rede
+        # Frame de configuração de rede - MELHORADO
         net_frame = ttk.LabelFrame(main_frame, text="Configuração de Rede", padding=10)
         net_frame.pack(fill=tk.X, pady=5)
         
@@ -113,9 +114,13 @@ class ManchesterCodingApp:
         self.port_entry.insert(0, "12345")
         
         if self.is_sender:
-            # Host A (Envio)
-            self.connect_btn = ttk.Button(net_frame, text="Conectar", command=self.connect_to_receiver)
-            self.connect_btn.grid(row=0, column=4, padx=5, pady=5)
+            # Host A (Envio) - BOTÕES DE DESCOBERTA ADICIONADOS
+            self.discover_btn = ttk.Button(net_frame, text="🔍 Descobrir Servidor", 
+                                         command=self.discover_and_connect)
+            self.discover_btn.grid(row=0, column=4, padx=5, pady=5)
+            
+            self.connect_btn = ttk.Button(net_frame, text="Conectar Manual", command=self.connect_to_receiver)
+            self.connect_btn.grid(row=0, column=5, padx=5, pady=5)
             
             # Frame de mensagem
             msg_frame = ttk.LabelFrame(main_frame, text="Mensagem", padding=10)
@@ -143,9 +148,15 @@ class ManchesterCodingApp:
             ttk.Button(key_frame, text="Gerar Nova", command=self.generate_new_key).pack(side=tk.LEFT)
             ttk.Button(key_frame, text="Copiar", command=lambda: self.root.clipboard_append(self.key_var.get())).pack(side=tk.LEFT, padx=5)
         else:
-            # Host B (Recepção)
-            self.status_var = tk.StringVar(value="Aguardando conexão na porta 12345...")
-            ttk.Label(net_frame, textvariable=self.status_var).grid(row=0, column=4, padx=5, pady=5)
+            # Host B (Recepção) - STATUS MELHORADO
+            self.status_var = tk.StringVar(value="Iniciando servidor...")
+            status_label = ttk.Label(net_frame, textvariable=self.status_var)
+            status_label.grid(row=0, column=4, padx=5, pady=5)
+            
+            # Botão para reiniciar servidor
+            self.restart_btn = ttk.Button(net_frame, text="🔄 Reiniciar Servidor", 
+                                        command=self.restart_server)
+            self.restart_btn.grid(row=0, column=5, padx=5, pady=5)
             
             # Chave de criptografia
             key_frame = ttk.LabelFrame(main_frame, text="Chave AES-256", padding=10)
@@ -197,7 +208,7 @@ class ManchesterCodingApp:
         self.manchester_display = scrolledtext.ScrolledText(self.manchester_tab, width=80, height=10)
         self.manchester_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Aba de gráfico - MELHORADA
+        # Aba de gráfico
         self.graph_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.graph_tab, text="Forma de Onda")
         
@@ -217,6 +228,98 @@ class ManchesterCodingApp:
         # Inicializar gráfico vazio
         self.draw_empty_graph()
 
+    # NOVO MÉTODO: Descoberta automática de servidor
+    def discover_and_connect(self):
+        """Descobre automaticamente um servidor na rede local"""
+        try:
+            self.status_bar.config(text="Procurando servidor na rede local...")
+            self.discover_btn.config(state=tk.DISABLED, text="🔍 Procurando...")
+            
+            def discovery_thread():
+                try:
+                    server_ip, server_port = discover_server(timeout=3.0)
+                    
+                    if server_ip and server_port:
+                        # Servidor encontrado - conectar automaticamente
+                        self.root.after(0, lambda: self.auto_connect_to_discovered(server_ip, server_port))
+                    else:
+                        # Nenhum servidor encontrado
+                        self.root.after(0, self.discovery_failed)
+                        
+                except Exception as e:
+                    self.root.after(0, lambda: self.discovery_error(str(e)))
+            
+            # Executar descoberta em thread separada para não bloquear a UI
+            threading.Thread(target=discovery_thread, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Erro de Descoberta", f"Erro ao iniciar descoberta: {str(e)}")
+            self.discover_btn.config(state=tk.NORMAL, text="🔍 Descobrir Servidor")
+
+    def auto_connect_to_discovered(self, server_ip, server_port):
+        """Conecta automaticamente ao servidor descoberto"""
+        try:
+            # Atualizar campos da UI
+            self.ip_entry.delete(0, tk.END)
+            self.ip_entry.insert(0, server_ip)
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, str(server_port))
+            
+            # Conectar
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((server_ip, server_port))
+            
+            # Atualizar UI
+            self.discover_btn.config(state=tk.DISABLED, text="✅ Conectado")
+            self.connect_btn.config(state=tk.DISABLED)
+            
+            messagebox.showinfo("Descoberta Bem-sucedida", 
+                              f"🎉 Servidor encontrado e conectado automaticamente!\n\n"
+                              f"Servidor: {server_ip}:{server_port}")
+            
+            self.status_bar.config(text=f"Conectado automaticamente a {server_ip}:{server_port}")
+            
+        except Exception as e:
+            messagebox.showerror("Erro de Conexão", 
+                               f"Servidor encontrado em {server_ip}:{server_port}, "
+                               f"mas não foi possível conectar: {str(e)}")
+            self.discover_btn.config(state=tk.NORMAL, text="🔍 Descobrir Servidor")
+
+    def discovery_failed(self):
+        """Chamado quando nenhum servidor é encontrado"""
+        self.discover_btn.config(state=tk.NORMAL, text="🔍 Descobrir Servidor")
+        messagebox.showwarning("Nenhum Servidor Encontrado", 
+                             "❌ Nenhum servidor Manchester foi encontrado na rede local.\n\n"
+                             "Certifique-se de que:\n"
+                             "• O Host B (Recepção) está executando\n"
+                             "• Ambos estão na mesma rede\n"
+                             "• O firewall não está bloqueando as conexões")
+        self.status_bar.config(text="Nenhum servidor encontrado na rede")
+
+    def discovery_error(self, error_msg):
+        """Chamado quando há erro na descoberta"""
+        self.discover_btn.config(state=tk.NORMAL, text="🔍 Descobrir Servidor")
+        messagebox.showerror("Erro de Descoberta", f"Erro durante a descoberta: {error_msg}")
+        self.status_bar.config(text="Erro na descoberta de servidor")
+
+    # NOVO MÉTODO: Reinicia o servidor
+    def restart_server(self):
+        """Reinicia o servidor de recepção"""
+        try:
+            # Fechar servidor existente se houver
+            if hasattr(self, 'server_socket') and self.server_socket:
+                self.server_socket.close()
+            
+            if hasattr(self, 'client_socket') and self.client_socket:
+                self.client_socket.close()
+            
+            # Reiniciar servidor
+            self.start_server()
+            messagebox.showinfo("Servidor Reiniciado", "Servidor reiniciado com sucesso!")
+            
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao reiniciar servidor: {str(e)}")
+
     def draw_empty_graph(self):
         """Desenha um gráfico vazio com instruções"""
         self.ax.clear()
@@ -226,7 +329,7 @@ class ManchesterCodingApp:
         self.canvas.draw()
 
     def draw_manchester_waveform(self, binary_data, manchester_data, title="Codificação Manchester"):
-        """Desenha a forma de onda Manchester corretamente - baseado no manchester_test_v2.py"""
+        """Desenha a forma de onda Manchester corretamente"""
         if not manchester_data:
             self.draw_empty_graph()
             return
@@ -382,22 +485,31 @@ Comprimentos:
             messagebox.showinfo("Conexão", f"Conectado com sucesso ao receptor em {host}:{port}")
             self.status_bar.config(text=f"Conectado a {host}:{port}")
             self.connect_btn.config(state=tk.DISABLED)
+            self.discover_btn.config(state=tk.DISABLED)
         except Exception as e:
             messagebox.showerror("Erro de Conexão", f"Não foi possível conectar: {str(e)}")
 
+    # MÉTODO MELHORADO: start_server com descoberta
     def start_server(self):
         try:
-            #host = self.ip_entry.get()
             host = self.ip_entry.get().strip() or '0.0.0.0'
             port = int(self.port_entry.get())
             
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_socket.bind((host, port))
-            server_socket.listen(1)
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((host, port))
+            self.server_socket.listen(1)
             
-            self.status_var.set(f"Aguardando conexão na porta {port}...")
+            self.status_var.set(f"Servidor ativo na porta {port} - Descobrível na rede")
             
-            threading.Thread(target=self.accept_connections, args=(server_socket,), daemon=True).start()
+            # INICIAR DESCOBERTA AUTOMÁTICA
+            threading.Thread(target=listen_for_discovery, args=(port,), daemon=True).start()
+            
+            # Iniciar servidor TCP
+            threading.Thread(target=self.accept_connections, args=(self.server_socket,), daemon=True).start()
+            
+            self.status_bar.config(text=f"Servidor iniciado na porta {port} com descoberta automática ativa")
+            
         except Exception as e:
             messagebox.showerror("Erro no Servidor", f"Não foi possível iniciar o servidor: {str(e)}")
 
@@ -412,7 +524,8 @@ Comprimentos:
                 
                 threading.Thread(target=self.receive_data, args=(client_socket,), daemon=True).start()
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Erro de Conexão", f"Erro ao aceitar conexão: {str(e)}"))
+            if "Bad file descriptor" not in str(e):  # Ignorar erro quando servidor é fechado intencionalmente
+                self.root.after(0, lambda: messagebox.showerror("Erro de Conexão", f"Erro ao aceitar conexão: {str(e)}"))
 
     def encrypt_aes_256(self, data):
         try:
@@ -435,6 +548,12 @@ Comprimentos:
         except Exception as e:
             messagebox.showerror("Erro de Descriptografia", f"Erro ao descriptografar: {str(e)}")
             return ""
+
+    def text_to_binary(self, text):
+        binary = ""
+        for char in text:
+            binary += format(ord(char), '08b')
+        return binary
 
     def text_to_binary(self, text):
         binary = ""
@@ -561,3 +680,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
