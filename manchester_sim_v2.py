@@ -388,7 +388,7 @@ Comprimentos:
     def start_server(self):
         try:
             #host = self.ip_entry.get()
-            host = self.ip_entry.get().strip() or '0.0.0.0'
+            host = '0.0.0.0'
             port = int(self.port_entry.get())
             
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
