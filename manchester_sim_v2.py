@@ -73,8 +73,8 @@ class ManchesterCodingApp:
         # Socket configurations
         self.socket = None
         self.client_socket = None
-        self.host = '127.0.0.1'
-        self.port = 12345
+        self.host = '192.168.100.1'
+        self.port = 12349
         
         # For AES encryption
         self.key = get_random_bytes(32)  # 256 bits
@@ -105,12 +105,12 @@ class ManchesterCodingApp:
         ttk.Label(net_frame, text="IP:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.ip_entry = ttk.Entry(net_frame, width=15)
         self.ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        self.ip_entry.insert(0, "127.0.0.1")
+        self.ip_entry.insert(0, "192.168.100.1")
         
         ttk.Label(net_frame, text="Porta:").grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         self.port_entry = ttk.Entry(net_frame, width=6)
         self.port_entry.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
-        self.port_entry.insert(0, "12345")
+        self.port_entry.insert(0, "12349")
         
         if self.is_sender:
             # Host A (Envio)
@@ -144,7 +144,7 @@ class ManchesterCodingApp:
             ttk.Button(key_frame, text="Copiar", command=lambda: self.root.clipboard_append(self.key_var.get())).pack(side=tk.LEFT, padx=5)
         else:
             # Host B (Recepção)
-            self.status_var = tk.StringVar(value="Aguardando conexão na porta 12345...")
+            self.status_var = tk.StringVar(value="Aguardando conexão na porta 12349...")
             ttk.Label(net_frame, textvariable=self.status_var).grid(row=0, column=4, padx=5, pady=5)
             
             # Chave de criptografia
