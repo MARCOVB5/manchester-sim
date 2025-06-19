@@ -1,508 +1,292 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
-class ManchesterValidator:
-    """
-    A class for validating and visualizing Manchester encoding.
-    This can be integrated into the existing ManchesterCodingApp.
-    """
+class ManchesterApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Codificação de Linha Manchester")
+        self.root.geometry("1000x800")
+        
+        # Variáveis
+        self.binary_input = tk.StringVar(value="0110110")
+        self.manchester_data = []
+        self.is_encoded = False
+        self.validation_result = None
+        
+        self.setup_ui()
     
-    @staticmethod
-    def validate_manchester_encoding(binary_data, manchester_data):
-        """
-        Validates if manchester_data is the correct Manchester encoding of binary_data.
-        
-        Args:
-            binary_data (str): Original binary string
-            manchester_data (list): Manchester encoded data as a list of 0s and 1s
-            
-        Returns:
-            tuple: (is_valid, errors) where errors is a list of positions where encoding is wrong
-        """
-        if not binary_data or not manchester_data:
-            return False, ["Empty data"]
-        
-        # Check if the manchester data length is twice the binary data length
-        if len(manchester_data) != 2 * len(binary_data):
-            return False, [f"Length mismatch: Manchester data should be twice as long as binary data. "
-                          f"Manchester: {len(manchester_data)}, Binary: {len(binary_data)}"]
-        
-        errors = []
-        
-        # Check each bit encoding
-        for i, bit in enumerate(binary_data):
-            manchester_pos = i * 2
-            if bit == '0':
-                # 0 should be encoded as 01
-                if manchester_data[manchester_pos:manchester_pos+2] != [0, 1]:
-                    errors.append(f"Bit {i}: '0' should be encoded as '01', got "
-                                 f"'{manchester_data[manchester_pos]}{manchester_data[manchester_pos+1]}'")
-            elif bit == '1':
-                # 1 should be encoded as 10
-                if manchester_data[manchester_pos:manchester_pos+2] != [1, 0]:
-                    errors.append(f"Bit {i}: '1' should be encoded as '10', got "
-                                 f"'{manchester_data[manchester_pos]}{manchester_data[manchester_pos+1]}'")
-            else:
-                errors.append(f"Invalid binary bit at position {i}: '{bit}'")
-        
-        return len(errors) == 0, errors
-
-    @staticmethod
-    def validate_manchester_decoding(manchester_data, binary_result):
-        """
-        Validates if binary_result is the correct decoding of manchester_data.
-        
-        Args:
-            manchester_data (list): Manchester encoded data as a list of 0s and 1s
-            binary_result (str): Decoded binary string
-            
-        Returns:
-            tuple: (is_valid, errors) where errors is a list of errors found
-        """
-        if not binary_result or not manchester_data:
-            return False, ["Empty data"]
-        
-        # Check if the lengths match
-        expected_binary_length = len(manchester_data) // 2
-        if len(binary_result) != expected_binary_length:
-            return False, [f"Length mismatch: Binary result should be half the length of manchester data. "
-                          f"Binary: {len(binary_result)}, Expected: {expected_binary_length}"]
-        
-        errors = []
-        
-        # Generate the expected binary string from manchester data
-        expected_binary = ""
-        for i in range(0, len(manchester_data), 2):
-            if i+1 < len(manchester_data):
-                # 01 should decode to 0
-                if manchester_data[i] == 0 and manchester_data[i+1] == 1:
-                    expected_binary += '0'
-                # 10 should decode to 1
-                elif manchester_data[i] == 1 and manchester_data[i+1] == 0:
-                    expected_binary += '1'
-                else:
-                    expected_binary += 'X'  # Invalid manchester code pair
-                    errors.append(f"Invalid Manchester code at positions {i}-{i+1}: "
-                                 f"{manchester_data[i]}{manchester_data[i+1]}")
-        
-        # Compare expected with actual
-        for i, (exp, act) in enumerate(zip(expected_binary, binary_result)):
-            if exp != act and exp != 'X':  # Skip already identified errors
-                errors.append(f"Decoding error at bit {i}: Expected '{exp}', got '{act}'")
-        
-        return len(errors) == 0, errors
-
-    @staticmethod
-    def enhanced_plot_manchester(ax, manchester_data, binary_data=None, title="Manchester Code Visualization"):
-        """
-        Enhanced visualization of Manchester encoding with clear bit boundaries and labels.
-        
-        Args:
-            ax: Matplotlib axis object
-            manchester_data (list): Manchester encoded data as a list of 0s and 1s
-            binary_data (str, optional): Original binary string for validation highlighting
-            title (str): Title for the plot
-        """
-        # Clear previous plot
-        ax.clear()
-        
-        if not manchester_data:
-            ax.set_title("No data to display")
-            return
-        
-        # Create a cleaner signal representation with proper transitions
-        x_values = []
-        y_values = []
-        
-        # Start with a small negative time to show the beginning of the signal
-        x_values.append(-0.5)
-        y_values.append(manchester_data[0])
-        
-        for i, bit in enumerate(manchester_data):
-            # Add transition point (vertical line)
-            if i > 0:
-                x_values.append(i - 0.001)
-                y_values.append(manchester_data[i - 1])
-            
-            # Add current point
-            x_values.append(i)
-            y_values.append(bit)
-            
-            # Hold value until next transition
-            x_values.append(i + 0.999)
-            y_values.append(bit)
-        
-        # Add final points
-        x_values.append(len(manchester_data) - 0.001)
-        y_values.append(manchester_data[-1])
-        x_values.append(len(manchester_data))
-        y_values.append(manchester_data[-1])
-        
-        # Draw main signal
-        ax.plot(x_values, y_values, 'b-', linewidth=2)
-        
-        # Validate encoding if binary data is provided
-        validation_errors = []
-        if binary_data:
-            is_valid, validation_errors = ManchesterValidator.validate_manchester_encoding(binary_data, manchester_data)
-            error_positions = set()
-            for error in validation_errors:
-                # Extract position numbers from error messages
-                try:
-                    pos = int(error.split("Bit ")[1].split(":")[0])
-                    error_positions.add(pos)
-                except (IndexError, ValueError):
-                    pass
-        
-        # Add binary bit labels and highlight errors
-        for i in range(0, len(manchester_data), 2):
-            if i+1 < len(manchester_data):
-                # Get bit value
-                if manchester_data[i] == 0 and manchester_data[i+1] == 1:
-                    bit_value = '0'
-                elif manchester_data[i] == 1 and manchester_data[i+1] == 0:
-                    bit_value = '1'
-                else:
-                    bit_value = '?'  # Invalid Manchester code
-                
-                # Label the bit
-                bit_position = i // 2
-                error_color = 'red' if binary_data and any(f"Bit {bit_position}" in err for err in validation_errors) else 'black'
-                error_bg = 'lightsalmon' if error_color == 'red' else 'white'
-                
-                # Add binary bit value annotation
-                ax.text(i + 0.5, -0.3, bit_value, 
-                        horizontalalignment='center', 
-                        verticalalignment='center',
-                        fontsize=10, color=error_color,
-                        bbox=dict(facecolor=error_bg, alpha=0.7, boxstyle='round,pad=0.3'))
-                
-                # Add bit position label (smaller)
-                ax.text(i + 0.5, -0.5, f"bit {bit_position}", 
-                        horizontalalignment='center', 
-                        verticalalignment='center',
-                        fontsize=8, color='darkblue')
-        
-        # Add vertical separation lines for bit pairs (clearer)
-        for i in range(0, len(manchester_data) + 1, 2):
-            ax.axvline(x=i, color='gray', linestyle='--', alpha=0.7)
-        
-        # Horizontal reference lines
-        ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax.axhline(y=1, color='black', linestyle='-', alpha=0.3)
-        
-        # Add clock signal to show transitions
-        clock_y = np.ones(len(manchester_data)) * -0.8
-        for i in range(len(clock_y)):
-            if i % 2 == 1:  # Alternate high/low for clock
-                clock_y[i] = -1.2
-        
-        # Plot clock signal
-        ax.step(range(len(manchester_data)), clock_y, 'g-', linewidth=1.5, where='post')
-        ax.text(-0.5, -1.0, 'Clock', fontsize=8, color='green')
-        
-        # Add bit group annotations
-        for i in range(0, len(manchester_data), 2):
-            if i % 4 == 0 and i+1 < len(manchester_data):  # Less frequent to reduce clutter
-                ax.annotate(
-                    '', xy=(i, 1.3), xytext=(i+2, 1.3),
-                    arrowprops=dict(arrowstyle='<->', color='green', alpha=0.7)
-                )
-                ax.text(i+1, 1.4, '1 bit', horizontalalignment='center', color='green', fontsize=8)
-        
-        # Add legend explaining the encoding
-        legend_items = [
-            ax.plot([], [], 'b-', linewidth=2, label='Manchester Signal')[0],
-            ax.plot([], [], 'g-', linewidth=1.5, label='Clock Reference')[0]
-        ]
-        ax.legend(handles=legend_items, loc='upper right')
-        
-        # Add encoding rule reminder
-        encoding_box = {
-            '0 → 01': 'lightblue',
-            '1 → 10': 'lightyellow'
-        }
-        
-        y_pos = 1.3
-        for text, color in encoding_box.items():
-            ax.text(
-                len(manchester_data) + 0.5, y_pos, text, 
-                bbox=dict(facecolor=color, alpha=0.8, boxstyle='round'),
-                fontsize=9
-            )
-            y_pos -= 0.3
-        
-        # Set plot properties
-        ax.set_title(title)
-        ax.set_xlabel('Time (samples)')
-        ax.set_ylabel('Signal Level')
-        ax.set_ylim([-1.5, 1.7])
-        ax.set_xlim([-1, len(manchester_data) + 4])  # Extend for legend
-        
-        # Add grid
-        ax.grid(True, which='both', linestyle=':', alpha=0.4)
-        
-        # Add tick marks at significant points
-        ax.set_xticks(range(0, len(manchester_data) + 1, 2))
-        ax.set_yticks([0, 1])
-
-class ManchesterTestSuite(tk.Toplevel):
-    """
-    A test suite window to validate Manchester encoding/decoding
-    """
-    def __init__(self, parent, master_app):
-        super().__init__(parent)
-        self.title("Manchester Code Test Suite")
-        self.geometry("800x600")
-        
-        self.master_app = master_app
-        self.create_widgets()
-        
-    def create_widgets(self):
-        # Main frame
-        main_frame = ttk.Frame(self, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Test case entry area
-        test_frame = ttk.LabelFrame(main_frame, text="Test Input", padding=10)
-        test_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(test_frame, text="Binary Data:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.test_binary = ttk.Entry(test_frame, width=50)
-        self.test_binary.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        self.test_binary.insert(0, "10110010")  # Default test case
-        
-        ttk.Button(test_frame, text="Run Test", command=self.run_test).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(test_frame, text="Run Predefined Tests", command=self.run_predefined_tests).grid(row=1, column=2, padx=5, pady=5)
-        
-        # Results area
-        results_frame = ttk.LabelFrame(main_frame, text="Test Results", padding=10)
-        results_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        self.results_text = scrolledtext.ScrolledText(results_frame, width=80, height=10)
-        self.results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Graph area
-        graph_frame = ttk.LabelFrame(main_frame, text="Signal Visualization", padding=10)
-        graph_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        
-        self.figure, self.ax = plt.subplots(figsize=(8, 4))
-        self.canvas = FigureCanvasTkAgg(self.figure, master=graph_frame)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    
-    def run_test(self):
-        binary_data = self.test_binary.get().strip()
-        if not binary_data:
-            messagebox.showwarning("Input Error", "Please enter binary data (0s and 1s)")
-            return
-        
-        if not all(bit in '01' for bit in binary_data):
-            messagebox.showwarning("Input Error", "Binary data should only contain 0s and 1s")
-            return
-        
-        self.results_text.delete("1.0", tk.END)
-        self.results_text.insert(tk.END, f"Testing binary data: {binary_data}\n\n")
-        
-        # Encoding test
-        self.results_text.insert(tk.END, "=== ENCODING TEST ===\n")
-        
-        # Use the app's encoding function
-        manchester_data = self.binary_to_manchester(binary_data)
-        
-        # Validate encoding
-        is_valid, errors = ManchesterValidator.validate_manchester_encoding(binary_data, manchester_data)
-        
-        self.results_text.insert(tk.END, f"Manchester encoded data: {''.join(map(str, manchester_data))}\n")
-        self.results_text.insert(tk.END, f"Encoding validation: {'✅ PASSED' if is_valid else '❌ FAILED'}\n")
-        
-        if not is_valid:
-            self.results_text.insert(tk.END, "Errors found:\n")
-            for error in errors:
-                self.results_text.insert(tk.END, f"  • {error}\n")
-        
-        # Decoding test
-        self.results_text.insert(tk.END, "\n=== DECODING TEST ===\n")
-        
-        # Use the app's decoding function
-        decoded_binary = self.manchester_to_binary(manchester_data)
-        
-        # Validate decoding
-        is_valid_decode = decoded_binary == binary_data
-        
-        self.results_text.insert(tk.END, f"Decoded binary data: {decoded_binary}\n")
-        self.results_text.insert(tk.END, f"Decoding validation: {'✅ PASSED' if is_valid_decode else '❌ FAILED'}\n")
-        
-        if not is_valid_decode:
-            self.results_text.insert(tk.END, "Errors found:\n")
-            self.results_text.insert(tk.END, f"  • Expected: {binary_data}\n")
-            self.results_text.insert(tk.END, f"  • Got: {decoded_binary}\n")
-            
-            # Find position of first difference
-            for i, (e, d) in enumerate(zip(binary_data, decoded_binary)):
-                if e != d:
-                    self.results_text.insert(tk.END, f"  • First difference at position {i}: Expected '{e}', got '{d}'\n")
-                    break
-        
-        # Plot the signal
-        ManchesterValidator.enhanced_plot_manchester(self.ax, manchester_data, binary_data, 
-                                                  f"Manchester Code Test: {binary_data}")
-        self.canvas.draw()
-    
-    def run_predefined_tests(self):
-        test_cases = [
-            "00000000",  # All zeros
-            "11111111",  # All ones
-            "01010101",  # Alternating
-            "10101010",  # Alternating, starting with 1
-            "00001111",  # Half and half
-            "11110000",  # Half and half, reversed
-            "10010110",  # Random pattern
-            "0101",      # Short pattern
-            "1"          # Single bit
-        ]
-        
-        self.results_text.delete("1.0", tk.END)
-        self.results_text.insert(tk.END, "=== PREDEFINED TEST CASES ===\n\n")
-        
-        all_passed = True
-        
-        for i, test_case in enumerate(test_cases):
-            self.results_text.insert(tk.END, f"Test Case #{i+1}: {test_case}\n")
-            
-            # Encode
-            manchester_data = self.binary_to_manchester(test_case)
-            
-            # Validate encoding
-            encoding_valid, encoding_errors = ManchesterValidator.validate_manchester_encoding(test_case, manchester_data)
-            
-            # Decode
-            decoded_binary = self.manchester_to_binary(manchester_data)
-            
-            # Validate round-trip
-            round_trip_valid = decoded_binary == test_case
-            
-            # Report results
-            self.results_text.insert(tk.END, f"  Encoding: {'✅ PASSED' if encoding_valid else '❌ FAILED'}\n")
-            self.results_text.insert(tk.END, f"  Round-trip: {'✅ PASSED' if round_trip_valid else '❌ FAILED'}\n")
-            
-            if not encoding_valid or not round_trip_valid:
-                all_passed = False
-                self.results_text.insert(tk.END, f"  Original:  {test_case}\n")
-                self.results_text.insert(tk.END, f"  Manchester: {''.join(map(str, manchester_data))}\n")
-                self.results_text.insert(tk.END, f"  Decoded:   {decoded_binary}\n\n")
-            
-            self.results_text.insert(tk.END, "\n")
-        
-        # Summary
-        self.results_text.insert(tk.END, "=== SUMMARY ===\n")
-        if all_passed:
-            self.results_text.insert(tk.END, "✅ All tests PASSED! The Manchester encoding/decoding implementation is correct.\n")
-        else:
-            self.results_text.insert(tk.END, "❌ Some tests FAILED. The implementation needs fixing.\n")
-        
-        # Plot the last test case for visual inspection
-        last_case = test_cases[-1]
-        last_manchester = self.binary_to_manchester(last_case)
-        ManchesterValidator.enhanced_plot_manchester(self.ax, last_manchester, last_case, 
-                                               f"Manchester Code - Test Case: {last_case}")
-        self.canvas.draw()
-    
-    def binary_to_manchester(self, binary):
-        # Use the app's encoding function if available, otherwise implement here
+    def encode_binary_to_manchester(self, binary):
+        """Codifica binário em Manchester"""
         manchester = []
         for bit in binary:
             if bit == '0':
-                manchester.extend([0, 1])  # 0 -> 01
-            else:
-                manchester.extend([1, 0])  # 1 -> 10
+                # 0 é codificado como transição alto-baixo (1,0)
+                manchester.extend([1, 0])
+            elif bit == '1':
+                # 1 é codificado como transição baixo-alto (0,1)
+                manchester.extend([0, 1])
         return manchester
     
-    def manchester_to_binary(self, manchester):
-        # Use the app's decoding function if available, otherwise implement here
-        binary = ""
+    def decode_manchester_to_binary(self, manchester):
+        """Decodifica Manchester em binário"""
+        binary = ''
         for i in range(0, len(manchester), 2):
-            if i+1 < len(manchester):
-                if manchester[i] == 0 and manchester[i+1] == 1:
-                    binary += '0'
-                elif manchester[i] == 1 and manchester[i+1] == 0:
-                    binary += '1'
+            if i + 1 < len(manchester):
+                if manchester[i] == 1 and manchester[i + 1] == 0:
+                    binary += '0'  # Alto-baixo representa 0
+                elif manchester[i] == 0 and manchester[i + 1] == 1:
+                    binary += '1'  # Baixo-alto representa 1
         return binary
-
-# Function to integrate with the main application
-def integrate_validator(app):
-    """
-    Integrates the Manchester validator into the existing application.
     
-    Args:
-        app: The ManchesterCodingApp instance to enhance
-    """
-    # Replace the plot_manchester function with the enhanced version
-    app.original_plot_manchester = app.plot_manchester
+    def validate_encoding(self, binary, manchester):
+        """Valida a codificação"""
+        if len(manchester) != len(binary) * 2:
+            return {'valid': False, 'error': 'Comprimento incorreto'}
+        
+        for i, bit in enumerate(binary):
+            manchester_pair = [manchester[i * 2], manchester[i * 2 + 1]]
+            
+            if bit == '0' and not (manchester_pair[0] == 1 and manchester_pair[1] == 0):
+                return {'valid': False, 'error': f"Erro no bit {i}: '0' deve ser codificado como '10'"}
+            if bit == '1' and not (manchester_pair[0] == 0 and manchester_pair[1] == 1):
+                return {'valid': False, 'error': f"Erro no bit {i}: '1' deve ser codificado como '01'"}
+        
+        return {'valid': True}
     
-    def enhanced_plot_function(manchester_data, title="Manchester Code"):
-        ManchesterValidator.enhanced_plot_manchester(app.ax, manchester_data, app.binary_data, title)
-        app.canvas.draw()
-    
-    app.plot_manchester = enhanced_plot_function
-    
-    # Add a validation button to the interface
-    validation_frame = ttk.Frame(app.manchester_tab)
-    validation_frame.pack(fill=tk.X, pady=5)
-    
-    validate_btn = ttk.Button(
-        validation_frame, 
-        text="Validate Encoding", 
-        command=lambda: validate_manchester_encoding(app)
-    )
-    validate_btn.pack(side=tk.LEFT, padx=5)
-    
-    test_suite_btn = ttk.Button(
-        validation_frame, 
-        text="Open Test Suite", 
-        command=lambda: open_test_suite(app)
-    )
-    test_suite_btn.pack(side=tk.LEFT, padx=5)
-    
-    # Add validation function
-    def validate_manchester_encoding(app):
-        if not app.binary_data or not app.manchester_data:
-            messagebox.showinfo("Validation", "No data to validate. Please encode some data first.")
+    def draw_manchester_chart(self):
+        """Desenha o gráfico Manchester"""
+        if not self.manchester_data:
             return
         
-        is_valid, errors = ManchesterValidator.validate_manchester_encoding(
-            app.binary_data, app.manchester_data
-        )
+        # Limpar gráfico anterior
+        self.ax.clear()
         
-        if is_valid:
-            messagebox.showinfo("Validation", "✅ The Manchester encoding is valid!")
-        else:
-            error_message = "❌ Validation failed with the following errors:\n\n"
-            error_message += "\n".join(errors)
-            messagebox.showerror("Validation Failed", error_message)
+        binary = self.binary_input.get()
+        
+        # Criar eixo de tempo
+        samples_per_bit = 2
+        time_points = []
+        signal_values = []
+        
+        for i, value in enumerate(self.manchester_data):
+            time_points.extend([i, i + 1])
+            signal_values.extend([value, value])
+        
+        # Plotar sinal
+        self.ax.plot(time_points, signal_values, 'b-', linewidth=2, label='Sinal Manchester')
+        
+        # Configurar eixos
+        self.ax.set_ylim(-0.5, 1.5)
+        self.ax.set_xlim(0, len(self.manchester_data))
+        self.ax.set_ylabel('Níveis Manchester')
+        self.ax.set_xlabel('Tempo (unidades de amostra)')
+        self.ax.set_title('Codificação Manchester – Sinal Bifásico')
+        
+        # Adicionar linhas de referência
+        self.ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, label='0 (Low)')
+        self.ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, label='1 (High)')
+        
+        # Adicionar separadores de bits
+        for i in range(1, len(binary)):
+            x_pos = i * 2
+            self.ax.axvline(x=x_pos, color='gray', linestyle=':', alpha=0.5)
+        
+        # Adicionar rótulos dos bits originais
+        for i, bit in enumerate(binary):
+            x_pos = i * 2 + 1
+            self.ax.text(x_pos, -0.3, f'bit {i}\n{bit}', 
+                        ha='center', va='top', fontsize=10, 
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.7))
+        
+        # Adicionar informações
+        info_text = f'Dados binários: {binary}\nManchester: {"".join(map(str, self.manchester_data))}'
+        self.ax.text(0.02, 0.98, info_text, transform=self.ax.transAxes, 
+                    verticalalignment='top', fontsize=10,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8))
+        
+        # Legenda das regras
+        legend_text = '0 → 10 (↓)\n1 → 01 (↑)'
+        self.ax.text(0.98, 0.98, legend_text, transform=self.ax.transAxes, 
+                    verticalalignment='top', horizontalalignment='right', fontsize=10,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.8))
+        
+        self.ax.legend()
+        self.ax.grid(True, alpha=0.3)
+        
+        # Atualizar canvas
+        self.canvas.draw()
     
-    # Add test suite launcher
-    def open_test_suite(app):
-        test_suite = ManchesterTestSuite(app.root, app)
-        test_suite.grab_set()  # Make it modal
+    def handle_encode(self):
+        """Executa a codificação"""
+        binary = self.binary_input.get().strip()
+        
+        # Validar entrada
+        if not binary:
+            messagebox.showerror("Erro", "Por favor, insira dados binários")
+            return
+        
+        if not all(bit in '01' for bit in binary):
+            messagebox.showerror("Erro", "Por favor, insira apenas 0s e 1s")
+            return
+        
+        # Codificar
+        self.manchester_data = self.encode_binary_to_manchester(binary)
+        self.is_encoded = True
+        
+        # Validar
+        self.validation_result = self.validate_encoding(binary, self.manchester_data)
+        
+        # Atualizar interface
+        self.update_results()
+        self.draw_manchester_chart()
+    
+    def handle_clear(self):
+        """Limpa os dados"""
+        self.binary_input.set("")
+        self.manchester_data = []
+        self.is_encoded = False
+        self.validation_result = None
+        
+        # Limpar resultados
+        self.result_frame.pack_forget()
+        
+        # Limpar gráfico
+        self.ax.clear()
+        self.ax.text(0.5, 0.5, 'Insira dados binários e clique em "Codificar"\npara visualizar o sinal Manchester', 
+                    ha='center', va='center', transform=self.ax.transAxes, fontsize=12, color='gray')
+        self.canvas.draw()
+    
+    def handle_test_decode(self):
+        """Testa a decodificação"""
+        if not self.manchester_data:
+            messagebox.showwarning("Aviso", "Primeiro codifique alguns dados")
+            return
+        
+        original = self.binary_input.get()
+        decoded = self.decode_manchester_to_binary(self.manchester_data)
+        is_correct = decoded == original
+        
+        result_text = f"""Teste de decodificação:
+Original: {original}
+Decodificado: {decoded}
+Resultado: {'✅ Correto' if is_correct else '❌ Erro'}"""
+        
+        messagebox.showinfo("Teste de Decodificação", result_text)
+    
+    def update_results(self):
+        """Atualiza a seção de resultados"""
+        if not self.is_encoded:
+            return
+        
+        # Mostrar frame de resultados
+        self.result_frame.pack(fill='x', padx=10, pady=5)
+        
+        # Atualizar dados
+        binary = self.binary_input.get()
+        manchester_str = "".join(map(str, self.manchester_data))
+        
+        self.original_label.config(text=f"Dados Originais: {binary}")
+        self.manchester_label.config(text=f"Manchester Codificado: {manchester_str}")
+        
+        # Atualizar validação
+        if self.validation_result:
+            if self.validation_result['valid']:
+                self.validation_label.config(
+                    text="✅ Codificação válida", 
+                    foreground='green'
+                )
+            else:
+                self.validation_label.config(
+                    text=f"❌ Erro: {self.validation_result['error']}", 
+                    foreground='red'
+                )
+    
+    def setup_ui(self):
+        """Configura a interface do usuário"""
+        # Título principal
+        title_frame = ttk.Frame(self.root)
+        title_frame.pack(fill='x', padx=10, pady=10)
+        
+        ttk.Label(title_frame, text="Codificação de Linha Manchester", 
+                 font=('Arial', 16, 'bold')).pack()
+        ttk.Label(title_frame, text="Implementação da codificação Manchester conforme método bifásico polar", 
+                 font=('Arial', 10)).pack()
+        
+        # Seção de entrada
+        input_frame = ttk.LabelFrame(self.root, text="Entrada de Dados", padding=10)
+        input_frame.pack(fill='x', padx=10, pady=5)
+        
+        # Campo de entrada
+        entry_frame = ttk.Frame(input_frame)
+        entry_frame.pack(fill='x', pady=5)
+        
+        ttk.Label(entry_frame, text="Dados Binários:").pack(anchor='w')
+        entry_widget = ttk.Entry(entry_frame, textvariable=self.binary_input, font=('Courier', 12))
+        entry_widget.pack(fill='x', pady=2)
+        
+        # Botões
+        button_frame = ttk.Frame(input_frame)
+        button_frame.pack(fill='x', pady=5)
+        
+        ttk.Button(button_frame, text="Codificar", command=self.handle_encode).pack(side='left', padx=2)
+        ttk.Button(button_frame, text="Limpar", command=self.handle_clear).pack(side='left', padx=2)
+        
+        # Regras de codificação
+        rules_frame = ttk.Frame(input_frame)
+        rules_frame.pack(fill='x', pady=5)
+        
+        ttk.Label(rules_frame, text="Regras de Codificação Manchester:", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(rules_frame, text="0 → Alto-Baixo (10) - Transição descendente ↓").pack(anchor='w')
+        ttk.Label(rules_frame, text="1 → Baixo-Alto (01) - Transição ascendente ↑").pack(anchor='w')
+        
+        # Seção de resultados (inicialmente oculta)
+        self.result_frame = ttk.LabelFrame(self.root, text="Resultados da Codificação", padding=10)
+        
+        self.original_label = ttk.Label(self.result_frame, font=('Courier', 10))
+        self.original_label.pack(anchor='w')
+        
+        self.manchester_label = ttk.Label(self.result_frame, font=('Courier', 10))
+        self.manchester_label.pack(anchor='w')
+        
+        self.validation_label = ttk.Label(self.result_frame, font=('Arial', 10, 'bold'))
+        self.validation_label.pack(anchor='w', pady=5)
+        
+        ttk.Button(self.result_frame, text="Testar Decodificação", 
+                  command=self.handle_test_decode).pack(anchor='w')
+        
+        # Seção de visualização
+        viz_frame = ttk.LabelFrame(self.root, text="Visualização do Sinal", padding=10)
+        viz_frame.pack(fill='both', expand=True, padx=10, pady=5)
+        
+        # Criar figura matplotlib
+        self.fig, self.ax = plt.subplots(figsize=(10, 4))
+        self.canvas = FigureCanvasTkAgg(self.fig, viz_frame)
+        self.canvas.get_tk_widget().pack(fill='both', expand=True)
+        
+        # Gráfico inicial vazio
+        self.ax.text(0.5, 0.5, 'Insira dados binários e clique em "Codificar"\npara visualizar o sinal Manchester', 
+                    ha='center', va='center', transform=self.ax.transAxes, fontsize=12, color='gray')
+        self.canvas.draw()
+        
+        # Informações técnicas
+        info_frame = ttk.LabelFrame(self.root, text="Sobre a Codificação Manchester", padding=10)
+        info_frame.pack(fill='x', padx=10, pady=5)
+        
+        info_text = """• Método Bifásico: A codificação Manchester combina os conceitos dos métodos RZ e NRZ-L.
+• Sincronismo: A transição no meio de cada bit fornece sincronismo automático.
+• Características: Cada bit tem duração dividida em duas metades com transição obrigatória.
+• Vantagens: Autossincronização, detecção de erros, sem componente DC."""
+        
+        ttk.Label(info_frame, text=info_text, justify='left').pack(anchor='w')
 
-# If you want to run the validator as a standalone application for testing
-def run_standalone():
+def main():
     root = tk.Tk()
-    root.title("Manchester Code Validator")
-    root.geometry("800x600")
-    
-    # Create a simple frame with test button
-    frame = ttk.Frame(root, padding=10)
-    frame.pack(fill=tk.BOTH, expand=True)
-    
-    test_suite = ManchesterTestSuite(root, None)
-    
+    app = ManchesterApp(root)
     root.mainloop()
 
 if __name__ == "__main__":
-    run_standalone()
-
+    main()

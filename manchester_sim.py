@@ -12,6 +12,50 @@ from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 import numpy as np
 
+class ManchesterEncoder:
+    """Classe para codificação Manchester baseada no manchester_test_v2.py"""
+    
+    @staticmethod
+    def encode_binary_to_manchester(binary):
+        """Codifica binário em Manchester - Padrão IEEE 802.3"""
+        manchester = []
+        for bit in binary:
+            if bit == '0':
+                # 0 é codificado como transição alto-baixo (1,0)
+                manchester.extend([1, 0])
+            elif bit == '1':
+                # 1 é codificado como transição baixo-alto (0,1)
+                manchester.extend([0, 1])
+        return manchester
+    
+    @staticmethod
+    def decode_manchester_to_binary(manchester):
+        """Decodifica Manchester em binário"""
+        binary = ''
+        for i in range(0, len(manchester), 2):
+            if i + 1 < len(manchester):
+                if manchester[i] == 1 and manchester[i + 1] == 0:
+                    binary += '0'  # Alto-baixo representa 0
+                elif manchester[i] == 0 and manchester[i + 1] == 1:
+                    binary += '1'  # Baixo-alto representa 1
+        return binary
+    
+    @staticmethod
+    def validate_encoding(binary, manchester):
+        """Valida a codificação"""
+        if len(manchester) != len(binary) * 2:
+            return {'valid': False, 'error': 'Comprimento incorreto'}
+        
+        for i, bit in enumerate(binary):
+            manchester_pair = [manchester[i * 2], manchester[i * 2 + 1]]
+            
+            if bit == '0' and not (manchester_pair[0] == 1 and manchester_pair[1] == 0):
+                return {'valid': False, 'error': f"Erro no bit {i}: '0' deve ser codificado como '10'"}
+            if bit == '1' and not (manchester_pair[0] == 0 and manchester_pair[1] == 1):
+                return {'valid': False, 'error': f"Erro no bit {i}: '1' deve ser codificado como '01'"}
+        
+        return {'valid': True}
+
 class ManchesterCodingApp:
     def __init__(self, root, is_sender=True):
         self.root = root
@@ -22,13 +66,13 @@ class ManchesterCodingApp:
         else:
             self.root.title("Manchester Coding - Host B (Recepção)")
         
-        self.root.geometry("1200x900")
+        self.root.geometry("1400x1000")
         
         # Socket configurations
         self.socket = None
         self.client_socket = None
-        self.host = '127.0.0.1'  # Localhost por padrão (será substituído)
-        self.port = 12345
+        self.host = '192.168.100.1'
+        self.port = 12349
         
         # For AES encryption
         self.key = get_random_bytes(32)  # 256 bits
@@ -37,6 +81,9 @@ class ManchesterCodingApp:
         self.binary_data = ""
         self.manchester_data = []
         self.received_data = {}
+        
+        # Instância do encoder Manchester
+        self.manchester_encoder = ManchesterEncoder()
         
         # Criar widgets após inicializar as variáveis
         self.create_widgets()
@@ -56,12 +103,12 @@ class ManchesterCodingApp:
         ttk.Label(net_frame, text="IP:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.ip_entry = ttk.Entry(net_frame, width=15)
         self.ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        self.ip_entry.insert(0, "127.0.0.1")
+        self.ip_entry.insert(0, "192.168.100.1")
         
         ttk.Label(net_frame, text="Porta:").grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         self.port_entry = ttk.Entry(net_frame, width=6)
         self.port_entry.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
-        self.port_entry.insert(0, "12345")
+        self.port_entry.insert(0, "12349")
         
         if self.is_sender:
             # Host A (Envio)
@@ -95,7 +142,7 @@ class ManchesterCodingApp:
             ttk.Button(key_frame, text="Copiar", command=lambda: self.root.clipboard_append(self.key_var.get())).pack(side=tk.LEFT, padx=5)
         else:
             # Host B (Recepção)
-            self.status_var = tk.StringVar(value="Aguardando conexão na porta 12345...")
+            self.status_var = tk.StringVar(value="Aguardando conexão na porta 12349...")
             ttk.Label(net_frame, textvariable=self.status_var).grid(row=0, column=4, padx=5, pady=5)
             
             # Chave de criptografia
@@ -148,24 +195,155 @@ class ManchesterCodingApp:
         self.manchester_display = scrolledtext.ScrolledText(self.manchester_tab, width=80, height=10)
         self.manchester_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Aba de gráfico
+        # Aba de gráfico - MELHORADA
         self.graph_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.graph_tab, text="Gráfico")
+        self.notebook.add(self.graph_tab, text="Forma de Onda")
         
-        self.figure, self.ax = plt.subplots(figsize=(10, 6))
+        # Frame para controles do gráfico
+        controls_frame = ttk.Frame(self.graph_tab)
+        controls_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Button(controls_frame, text="Testar Decodificação", command=self.test_decode).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Validar Codificação", command=self.validate_manchester).pack(side=tk.LEFT, padx=5)
+        
+        # Criar figura matplotlib com tamanho maior
+        self.figure, self.ax = plt.subplots(figsize=(12, 8))
         self.canvas = FigureCanvasTkAgg(self.figure, master=self.graph_tab)
         self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Inicializar gráfico vazio
+        self.draw_empty_graph()
+
+    def draw_empty_graph(self):
+        """Desenha um gráfico vazio com instruções"""
+        self.ax.clear()
+        self.ax.text(0.5, 0.5, 'Digite uma mensagem e clique em "Enviar Mensagem"\npara visualizar a forma de onda Manchester', 
+                    ha='center', va='center', transform=self.ax.transAxes, fontsize=12, color='gray')
+        self.ax.set_title('Forma de Onda Manchester - Aguardando dados')
+        self.canvas.draw()
+
+    def draw_manchester_waveform(self, binary_data, manchester_data, title="Codificação Manchester"):
+        """Desenha a forma de onda Manchester corretamente - baseado no manchester_test_v2.py"""
+        if not manchester_data:
+            self.draw_empty_graph()
+            return
+        
+        # Limpar gráfico anterior
+        self.ax.clear()
+        
+        # Criar eixo de tempo para forma de onda contínua
+        time_points = []
+        signal_values = []
+        
+        # Criar pontos para forma de onda escalonada
+        for i, value in enumerate(manchester_data):
+            time_points.extend([i, i + 1])
+            signal_values.extend([value, value])
+        
+        # Plotar sinal Manchester
+        self.ax.plot(time_points, signal_values, 'b-', linewidth=3, label='Sinal Manchester')
+        
+        # Configurar eixos
+        self.ax.set_ylim(-0.5, 1.5)
+        self.ax.set_xlim(0, len(manchester_data))
+        self.ax.set_ylabel('Amplitude (V)', fontsize=12)
+        self.ax.set_xlabel('Tempo (unidades de amostra)', fontsize=12)
+        self.ax.set_title(f'{title} – Sinal Bifásico', fontsize=14, fontweight='bold')
+        
+        # Adicionar linhas de referência
+        self.ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, label='Nível Baixo (0V)')
+        self.ax.axhline(y=1, color='green', linestyle='--', alpha=0.7, label='Nível Alto (1V)')
+        
+        # Adicionar separadores de bits originais
+        for i in range(1, len(binary_data)):
+            x_pos = i * 2
+            self.ax.axvline(x=x_pos, color='gray', linestyle=':', alpha=0.8, linewidth=1)
+        
+        # Adicionar rótulos dos bits originais
+        for i, bit in enumerate(binary_data):
+            x_pos = i * 2 + 1
+            # Rótulo do bit
+            self.ax.text(x_pos, -0.3, f'Bit {i}\n{bit}', 
+                        ha='center', va='top', fontsize=10, 
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.8))
+            
+            # Mostrar a codificação Manchester correspondente
+            manchester_pair = manchester_data[i*2:i*2+2]
+            manchester_str = ''.join(map(str, manchester_pair))
+            self.ax.text(x_pos, 1.3, f'→ {manchester_str}', 
+                        ha='center', va='bottom', fontsize=9, color='blue',
+                        bbox=dict(boxstyle='round,pad=0.2', facecolor='lightyellow', alpha=0.8))
+        
+        # Adicionar informações dos dados
+        info_text = f'Dados binários: {binary_data}\nManchester: {"".join(map(str, manchester_data))}\nComprimento: {len(binary_data)} bits → {len(manchester_data)} símbolos'
+        self.ax.text(0.02, 0.98, info_text, transform=self.ax.transAxes, 
+                    verticalalignment='top', fontsize=10,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9))
+        
+        # Legenda das regras de codificação
+        legend_text = 'Regras Manchester:\n0 → 10 (Alto→Baixo) ↓\n1 → 01 (Baixo→Alto) ↑'
+        self.ax.text(0.98, 0.98, legend_text, transform=self.ax.transAxes, 
+                    verticalalignment='top', horizontalalignment='right', fontsize=10,
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.9))
+        
+        # Configurar legenda
+        self.ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3)
+        
+        # Adicionar grade
+        self.ax.grid(True, alpha=0.3)
+        
+        # Ajustar layout
+        self.figure.tight_layout()
+        
+        # Atualizar canvas
+        self.canvas.draw()
+
+    def test_decode(self):
+        """Testa a decodificação Manchester"""
+        if not self.manchester_data or not self.binary_data:
+            messagebox.showwarning("Aviso", "Primeiro envie uma mensagem para ter dados Manchester")
+            return
+        
+        # Decodificar
+        decoded_binary = self.manchester_encoder.decode_manchester_to_binary(self.manchester_data)
+        is_correct = decoded_binary == self.binary_data
+        
+        result_text = f"""Teste de Decodificação Manchester:
+
+Original (binário): {self.binary_data[:50]}{'...' if len(self.binary_data) > 50 else ''}
+Decodificado:      {decoded_binary[:50]}{'...' if len(decoded_binary) > 50 else ''}
+
+Resultado: {'✅ Decodificação CORRETA' if is_correct else '❌ ERRO na decodificação'}
+
+Comprimentos:
+- Binário original: {len(self.binary_data)} bits
+- Manchester: {len(self.manchester_data)} símbolos ({len(self.manchester_data)//2} bits esperados)
+- Decodificado: {len(decoded_binary)} bits"""
+        
+        messagebox.showinfo("Teste de Decodificação", result_text)
+
+    def validate_manchester(self):
+        """Valida a codificação Manchester"""
+        if not self.manchester_data or not self.binary_data:
+            messagebox.showwarning("Aviso", "Primeiro envie uma mensagem para ter dados Manchester")
+            return
+            
+        validation = self.manchester_encoder.validate_encoding(self.binary_data, self.manchester_data)
+        
+        if validation['valid']:
+            messagebox.showinfo("Validação", "✅ Codificação Manchester VÁLIDA!\n\nTodos os bits estão codificados corretamente.")
+        else:
+            messagebox.showerror("Validação", f"❌ Codificação Manchester INVÁLIDA!\n\n{validation['error']}")
 
     def generate_new_key(self):
-        self.key = get_random_bytes(32)  # Gera 32 bytes (256 bits)
+        self.key = get_random_bytes(32)
         key_b64 = base64.b64encode(self.key).decode()
         self.key_var.set(key_b64)
-    
-        # Copiar automaticamente para a área de transferência
+        
         self.root.clipboard_clear()
         self.root.clipboard_append(key_b64)
-    
+        
         messagebox.showinfo("Nova Chave", "Nova chave AES-256 gerada com sucesso e copiada para a área de transferência!")
 
     def set_key(self):
@@ -175,23 +353,18 @@ class ManchesterCodingApp:
                 messagebox.showerror("Erro", "A chave não pode estar vazia")
                 return
             
-            # Decodificar a chave base64
             try:
                 decoded_key = base64.b64decode(key_b64)
             except Exception:
                 messagebox.showerror("Erro", "Formato de chave inválido. Certifique-se de que é um valor Base64 válido.")
                 return
             
-            # Verificar se tem o tamanho correto (256 bits = 32 bytes)
             if len(decoded_key) != 32:
                 messagebox.showerror("Erro", f"Tamanho de chave inválido: {len(decoded_key)} bytes. A chave deve ter 32 bytes (256 bits)")
                 return
             
-            # Definir a chave
             self.key = decoded_key
             messagebox.showinfo("Chave Definida", "Chave AES-256 definida com sucesso!")
-        
-            # Atualizar a interface para mostrar que a chave está pronta
             self.status_bar.config(text="Chave AES definida e pronta para descriptografia")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao definir a chave: {str(e)}")
@@ -212,7 +385,8 @@ class ManchesterCodingApp:
 
     def start_server(self):
         try:
-            host = self.ip_entry.get()
+            #host = self.ip_entry.get()
+            host = '0.0.0.0'
             port = int(self.port_entry.get())
             
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -221,7 +395,6 @@ class ManchesterCodingApp:
             
             self.status_var.set(f"Aguardando conexão na porta {port}...")
             
-            # Iniciar thread para aceitar conexões
             threading.Thread(target=self.accept_connections, args=(server_socket,), daemon=True).start()
         except Exception as e:
             messagebox.showerror("Erro no Servidor", f"Não foi possível iniciar o servidor: {str(e)}")
@@ -232,27 +405,18 @@ class ManchesterCodingApp:
                 client_socket, addr = server_socket.accept()
                 self.client_socket = client_socket
                 
-                # Atualizar UI na thread principal
                 self.root.after(0, lambda: self.status_var.set(f"Conectado com {addr[0]}:{addr[1]}"))
                 self.root.after(0, lambda: self.status_bar.config(text=f"Cliente conectado de {addr[0]}:{addr[1]}"))
                 
-                # Iniciar thread para receber dados
                 threading.Thread(target=self.receive_data, args=(client_socket,), daemon=True).start()
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Erro de Conexão", f"Erro ao aceitar conexão: {str(e)}"))
 
     def encrypt_aes_256(self, data):
         try:
-            # Gerar um IV aleatório
             iv = get_random_bytes(16)
-            
-            # Criar cifra
             cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            
-            # Criptografar
             encrypted_data = cipher.encrypt(pad(data.encode('utf-8'), AES.block_size))
-            
-            # Retornar IV + dados criptografados em base64
             return base64.b64encode(iv + encrypted_data).decode('utf-8')
         except Exception as e:
             messagebox.showerror("Erro de Criptografia", f"Erro ao criptografar: {str(e)}")
@@ -260,17 +424,10 @@ class ManchesterCodingApp:
 
     def decrypt_aes_256(self, encrypted_data):
         try:
-            # Decodificar de base64
             raw_data = base64.b64decode(encrypted_data)
-            
-            # Extrair IV (primeiros 16 bytes)
             iv = raw_data[:16]
             encrypted_data = raw_data[16:]
-            
-            # Criar cifra
             cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            
-            # Descriptografar
             decrypted_data = unpad(cipher.decrypt(encrypted_data), AES.block_size)
             return decrypted_data.decode('utf-8')
         except Exception as e:
@@ -278,147 +435,21 @@ class ManchesterCodingApp:
             return ""
 
     def text_to_binary(self, text):
-        # Converter texto para binário usando ASCII estendido
         binary = ""
         for char in text:
-            # Pegar código ASCII do caractere e converter para binário (8 bits)
             binary += format(ord(char), '08b')
         return binary
 
     def binary_to_text(self, binary):
-        # Converter binário para texto usando ASCII estendido
         text = ""
         for i in range(0, len(binary), 8):
             byte = binary[i:i+8]
-            if len(byte) == 8:  # Verificar se é um byte completo
+            if len(byte) == 8:
                 text += chr(int(byte, 2))
         return text
 
-    def binary_to_manchester(self, binary):
-        # Codificação Manchester: 0 -> 01, 1 -> 10
-        manchester = []
-        for bit in binary:
-            if bit == '0':
-                manchester.extend([0, 1])  # 0 -> 01
-            else:
-                manchester.extend([1, 0])  # 1 -> 10
-        return manchester
-
-    def manchester_to_binary(self, manchester):
-        # Decodificação Manchester: 01 -> 0, 10 -> 1
-        binary = ""
-        for i in range(0, len(manchester), 2):
-            if i+1 < len(manchester):
-                if manchester[i] == 0 and manchester[i+1] == 1:
-                    binary += '0'
-                elif manchester[i] == 1 and manchester[i+1] == 0:
-                    binary += '1'
-        return binary
-
-    def plot_manchester(self, manchester_data, title="Codificação Manchester"):
-        # Limpar gráfico anterior
-        self.ax.clear()
-        
-        # Se não houver dados, não plotar
-        if not manchester_data:
-            self.ax.set_title("Sem dados para exibir")
-            self.canvas.draw()
-            return
-        
-        # Criar uma representação mais precisa do sinal para melhor visualização
-        # Dobrar cada ponto para criar transições verticais claras
-        x_values = []
-        y_values = []
-        
-        # Iniciar com um tempo negativo pequeno para mostrar o início do sinal
-        x_values.append(-0.5)
-        y_values.append(manchester_data[0])
-        
-        for i, bit in enumerate(manchester_data):
-            # Adicionar um ponto antes da transição (mesmo x, valor anterior)
-            if i > 0:
-                x_values.append(i - 0.001)
-                y_values.append(manchester_data[i - 1])
-            
-            # Adicionar o ponto atual
-            x_values.append(i)
-            y_values.append(bit)
-            
-            # Adicionar outro ponto para manter o valor até a próxima transição
-            x_values.append(i + 0.999)
-            y_values.append(bit)
-        
-        # Adicionar um ponto extra no final para mostrar o final do sinal
-        x_values.append(len(manchester_data) - 0.001)
-        y_values.append(manchester_data[-1])
-        x_values.append(len(manchester_data))
-        y_values.append(manchester_data[-1])
-        
-        # Desenhar o sinal como uma linha contínua
-        self.ax.plot(x_values, y_values, 'b-', linewidth=2)
-        
-        # Adicionar marcações para cada bit
-        for i in range(0, len(manchester_data), 2):
-            if i+1 < len(manchester_data):
-                # Determinar qual bit original este par representa
-                bit_value = '0' if manchester_data[i] == 0 and manchester_data[i+1] == 1 else '1'
-                # Posicionar o texto no meio do par
-                self.ax.text(i + 0.5, -0.2, bit_value, 
-                            horizontalalignment='center', 
-                            verticalalignment='center',
-                            fontsize=9, color='red')
-        
-        # Adicionar linhas verticais para separar os pares de bits (bits originais)
-        for i in range(0, len(manchester_data) + 1, 2):
-            self.ax.axvline(x=i, color='lightgray', linestyle='--', alpha=0.7)
-        
-        # Adicionar uma linha horizontal no nível 0
-        self.ax.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
-        
-        # Adicionar uma linha horizontal no nível 1
-        self.ax.axhline(y=1, color='gray', linestyle='-', alpha=0.5)
-        
-        # Configurar o layout do gráfico
-        self.ax.set_xlabel('Tempo (amostras)')
-        self.ax.set_ylabel('Nível')
-        self.ax.set_title(title)
-        self.ax.set_ylim([-0.5, 1.5])
-        
-        # Ajustar os limites do eixo x para mostrar um pouco antes e depois do sinal
-        self.ax.set_xlim([-1, len(manchester_data) + 1])
-        
-        # Adicionar legendas para explicar a codificação
-        self.ax.text(len(manchester_data) + 0.5, 0.8, '01 → 0', color='blue', 
-                    bbox=dict(facecolor='white', alpha=0.8))
-        self.ax.text(len(manchester_data) + 0.5, 0.3, '10 → 1', color='blue',
-                    bbox=dict(facecolor='white', alpha=0.8))
-        
-        # Adicionar grade
-        self.ax.grid(True, which='both', linestyle=':', alpha=0.6)
-        
-        # Adicionar ticks para cada posição de bit
-        self.ax.set_xticks(range(0, len(manchester_data)))
-        
-        # Anotações para indicar os pares de bits
-        for i in range(0, len(manchester_data), 2):
-            if i+1 < len(manchester_data):
-                mid_point = i + 0.5
-                self.ax.annotate(f'', xy=(i, 1.3), xytext=(i+2, 1.3),
-                                arrowprops=dict(arrowstyle='<->',
-                                            linestyle='-',
-                                            color='green',
-                                            alpha=0.7))
-                if i % 4 == 0:  # Para não sobrecarregar o gráfico, só mostrar algumas anotações
-                    self.ax.text(mid_point, 1.4, f'1 bit', 
-                                horizontalalignment='center', 
-                                color='green', fontsize=8)
-        
-        # Atualizar canvas
-        self.canvas.draw()
-
     def process_and_send(self):
         try:
-            # Pegar mensagem da UI
             message = self.message_text.get("1.0", tk.END).strip()
             if not message:
                 messagebox.showwarning("Aviso", "Digite uma mensagem para enviar.")
@@ -439,8 +470,8 @@ class ManchesterCodingApp:
             self.binary_display.delete("1.0", tk.END)
             self.binary_display.insert(tk.END, binary)
             
-            # Aplicar codificação Manchester
-            manchester = self.binary_to_manchester(binary)
+            # Aplicar codificação Manchester CORRETA
+            manchester = self.manchester_encoder.encode_binary_to_manchester(binary)
             self.manchester_data = manchester
             
             # Mostrar codificação Manchester
@@ -448,8 +479,8 @@ class ManchesterCodingApp:
             self.manchester_display.delete("1.0", tk.END)
             self.manchester_display.insert(tk.END, manchester_text)
             
-            # Desenhar o gráfico
-            self.plot_manchester(manchester)
+            # Desenhar a forma de onda CORRETA
+            self.draw_manchester_waveform(binary[:32], manchester[:64], "Codificação Manchester - Enviado")  # Limitar para visualização
             
             # Preparar dados para envio
             data_to_send = {
@@ -471,16 +502,13 @@ class ManchesterCodingApp:
     def receive_data(self, client_socket):
         try:
             while True:
-                # Receber dados
                 data = client_socket.recv(65536)
                 if not data:
                     break
                 
-                # Processar dados recebidos
                 received_data = json.loads(data.decode())
                 self.received_data = received_data
                 
-                # Atualizar UI na thread principal
                 self.root.after(0, self.process_received_data)
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Erro de Recepção", f"Erro ao receber dados: {str(e)}"))
@@ -489,10 +517,13 @@ class ManchesterCodingApp:
 
     def process_received_data(self):
         try:
-            # Pegar dados recebidos
             manchester = self.received_data.get("manchester", [])
             binary = self.received_data.get("binary", "")
             encrypted = self.received_data.get("encrypted", "")
+            
+            # Armazenar dados recebidos
+            self.manchester_data = manchester
+            self.binary_data = binary
             
             # Mostrar dados recebidos
             self.manchester_display.delete("1.0", tk.END)
@@ -504,18 +535,16 @@ class ManchesterCodingApp:
             self.encrypted_display.delete("1.0", tk.END)
             self.encrypted_display.insert(tk.END, encrypted)
             
-            # Desenhar o gráfico
-            self.plot_manchester(manchester, "Decodificação Manchester (Recebido)")
+            # Desenhar a forma de onda dos dados recebidos
+            self.draw_manchester_waveform(binary[:32], manchester[:64], "Decodificação Manchester - Recebido")
             
             # Decodificar e descriptografar
             if self.key:
                 decrypted = self.decrypt_aes_256(encrypted)
                 
-                # Mostrar mensagem original
                 self.text_display.delete("1.0", tk.END)
                 self.text_display.insert(tk.END, decrypted)
                 
-                # Atualizar status
                 self.status_bar.config(text="Mensagem recebida e decodificada com sucesso")
             else:
                 messagebox.showwarning("Aviso", "Configure uma chave AES-256 para descriptografar.")
